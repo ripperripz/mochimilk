@@ -28,9 +28,13 @@ async function run(action) {
     const suffix = action === 'serve' ? '/actions' : action === 'sales' ? '/sales' : '';
     const response = await fetch('/api/players/' + id + suffix, {
       method, headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(5000),
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000),
     });
     const text = await response.text();
+    const isJson = response.headers.get('content-type')?.includes('json');
+    if (response.status !== 204 && !isJson) {
+      throw Error('The bakery API route did not return JSON. Check the deployment routing.');
+    }
     const data = text ? JSON.parse(text) : { deleted: true };
     if (!response.ok) throw Error(data.detail || 'Request failed.');
     if (action === 'delete') { state = undefined; id = null; sessionStorage.removeItem('bakery-demo'); }
@@ -38,7 +42,7 @@ async function run(action) {
     $('#after').textContent = JSON.stringify(data, null, 2);
     $('#status').textContent = action + ' succeeded' + (id ? ' · ' + id : '');
   } catch (error) {
-    $('#status').textContent = error.message + ' Check that the API and PostgreSQL are running.';
+    $('#status').textContent = error.message;
   } finally { busy = false; controls(); }
 }
 document.addEventListener('click', event => {

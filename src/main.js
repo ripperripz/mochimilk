@@ -88,7 +88,7 @@ function toast(text) {
 async function request(path, options) {
   let response;
   try {
-    response = await fetch('/api' + path, { signal: AbortSignal.timeout(4000), ...options });
+    response = await fetch('/api' + path, { signal: AbortSignal.timeout(import.meta.env.DEV ? 4000 : 12000), ...options });
   } catch {
     throw Object.assign(Error('Could not reach the bakery server. Try again.'), { uncertain: true });
   }

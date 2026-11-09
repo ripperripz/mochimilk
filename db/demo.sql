@@ -4,7 +4,20 @@
 BEGIN;
 SELECT gen_random_uuid() AS demo_player \gset
 
-INSERT INTO players (id, name) VALUES (:'demo_player', 'Viva Demo');
+-- CREATE: add a player.
+INSERT INTO players (id, name)
+VALUES (:'demo_player', 'Viva Demo');
+
+-- READ: find that player by primary key.
+SELECT id, name, coins
+FROM players
+WHERE id = :'demo_player';
+
+-- UPDATE: rename the player.
+UPDATE players
+SET name = 'Sugarberry Student'
+WHERE id = :'demo_player';
+
 INSERT INTO inventory (player_id, ingredient_id, quantity)
 SELECT :'demo_player', id, starting_stock FROM ingredients;
 
@@ -56,6 +69,16 @@ SELECT o.day, COUNT(*) AS orders, SUM(s.subtotal + o.bonus) AS revenue
 FROM orders o JOIN subtotals s ON s.order_id = o.id
 WHERE o.player_id = :'demo_player'
 GROUP BY o.day;
+
+SAVEPOINT before_delete;
+
+-- DELETE: remove the demo player. Foreign keys cascade to its stock and orders.
+DELETE FROM players
+WHERE id = :'demo_player';
+
+-- Undo the deletion, then show that the player is back.
+ROLLBACK TO SAVEPOINT before_delete;
+SELECT name, coins FROM players WHERE id = :'demo_player';
 
 ROLLBACK;
 SELECT COUNT(*) AS demo_players_left FROM players WHERE id = :'demo_player';

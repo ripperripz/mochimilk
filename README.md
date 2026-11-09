@@ -69,7 +69,7 @@ erDiagram
 | POST | `/api/players/{uuid}/actions` | Serve, skip, advance, restock, or upgrade |
 | GET | `/api/players/{uuid}/sales` | Get order counts and revenue by day |
 
-For the viva, serve a guest with the server running, then open the ledger. Run the SQL demo for an isolated example of joins, aggregation, and rollback. The demo leaves your real save untouched.
+For the viva, start with the four plain SQL statements in `db/demo.sql`: `INSERT`, `SELECT`, `UPDATE`, and `DELETE`. The Spring Boot service uses those same SQL operations through JDBC. Then serve a guest with the server running, then open the ledger. Run the SQL demo for an isolated example of joins, aggregation, and rollback. The demo leaves your real save untouched.
 
 ```sh
 docker compose exec -T db psql -U sugarberry -d sugarberry < db/demo.sql
@@ -89,3 +89,11 @@ The API smoke script creates and removes its own profile. It checks player CRUD,
 Open /demo.html for the interactive database demonstration. Its disposable profile is separate from your game save.
 
 Click the oven or counter to bake, the shelves for the pantry, or the register for sales. After adding ingredients, drag around the bowl or press Whisk eight times before timing the oven.
+
+## Deploy the DBMS demo on Vercel
+
+Vercel serves the Vite frontend and forwards its same-origin API calls to the hosted Spring Boot service. Deploy the contents of the `backend` directory as a Docker service on a host that supports containers, such as Railway or Render. Attach PostgreSQL and set `DATABASE_URL` to its JDBC URL (for example, `jdbc:postgresql://HOST:5432/DB?sslmode=require` when the provider requires TLS), plus `DATABASE_USER` and `DATABASE_PASSWORD`. Spring Boot initializes the schema and demo catalog at startup.
+
+1. Check that `https://YOUR-BACKEND/api/catalog` returns JSON.
+2. In the Vercel project, add `BAKERY_API_ORIGIN=https://YOUR-BACKEND` for the environments you deploy. Redeploy after saving the variable. Keep the database credentials on the backend host.
+3. Open `/demo.html` on the Vercel site and create a demo profile. Serve an order, check daily totals, then delete the demo profile. To check the same flow from a terminal, run `BAKERY_API=https://YOUR-VERCEL-SITE node scripts/smoke.mjs`.
