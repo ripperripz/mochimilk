@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: sugarberry
+      POSTGRES_USER: sugarberry
+      POSTGRES_PASSWORD: sugarberry
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - bakery-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sugarberry -d sugarberry"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+volumes:
+  bakery-data:

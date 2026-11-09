@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8e9d7">
+  <title>Mochi &amp; Milk · Sugarberry Bakery</title>
+</head>
+<body>
+  <main class="game-shell">
+    <header class="masthead">
+      <div class="brand">
+        <span class="brand-mark" id="brand-mark"></span>
+        <div><h1>Mochi <i>&amp;</i> Milk</h1><p>Sugarberry Bakery</p></div>
+      </div>
+      <div class="top-controls">
+        <span class="save-label" id="save-label">Opening the bakery…</span>
+        <button class="icon-button" id="sound" type="button" aria-label="Toggle sound" aria-pressed="true"></button>
+        <button class="icon-button" id="help" type="button" aria-label="How to play"></button>
+      </div>
+    </header>
+    <div class="shift-bar">
+      <span class="shift-day"><span data-icon="sun"></span><strong id="day">Day 1</strong><span id="shift-state">Bakery open</span></span>
+      <span class="shift-progress" id="progress"></span>
+      <span class="wallet"><span data-icon="coin"></span><strong id="coins">24</strong><span>coins</span></span>
+    </div>
+    <div class="play-grid">
+      <section class="world" aria-label="Bakery">
+        <div class="scene-frame">
+          <div id="stage" role="img" aria-label="Pixel art bakery with a bunny baker, a pastry counter, and a queue of animal customers"></div>
+          <span class="location"><span class="open-dot"></span> Sugarberry Lane</span>
+          <span class="world-caption" id="world-caption">The ovens are warm.</span>
+        </div>
+        <section class="recipe-book" aria-label="Recipe book">
+          <div class="book-heading"><span data-icon="book"></span><h2>Recipe book</h2><span id="level"></span></div>
+          <div class="recipes" id="recipes"></div>
+        </section>
+      </section>
+      <aside class="tickets" aria-label="Order counter">
+        <div class="rail-heading"><span data-icon="ticket"></span><h2>Order counter</h2></div>
+        <div id="order"><p>Setting out the pastries…</p></div>
+        <div class="queue-block">
+          <h3>Up next</h3>
+          <div id="queue"></div>
+        </div>
+        <nav class="tools" aria-label="Bakery tools">
+          <button data-panel="pantry" type="button"><span data-icon="basket"></span> Pantry</button>
+          <button data-panel="shop" type="button"><span data-icon="shop"></span> Shop</button>
+          <button data-panel="ledger" type="button"><span data-icon="book"></span> Ledger</button>
+        </nav>
+      </aside>
+    </div>
+    <footer><span>A little bakery in Sugarberry Village.</span><span><a href="./demo.html">Database demo</a></span></footer>
+    <div class="toast" role="status" id="toast"></div>
+    <dialog id="dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+  </main>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

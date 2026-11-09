@@ -1,0 +1,20 @@
+{
+  "name": "mochi-and-milk",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fontsource/fraunces": "^5.2.0",
+    "@fontsource/nunito": "^5.2.0",
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.1"
+  }
+}
