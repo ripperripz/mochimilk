@@ -1,9 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "functions": {
+    "api/bakery.js": { "includeFiles": "db/{schema,data}.sql" }
+  },
   "rewrites": [
-    { "source": "/api/tables", "destination": "/api/bakery-proxy?route=tables" },
-    { "source": "/api/catalog", "destination": "/api/bakery-proxy?route=catalog" },
-    { "source": "/api/players/:path*", "destination": "/api/bakery-proxy?route=players/:path*" }
+    { "source": "/api/tables", "destination": "/api/bakery?route=tables" },
+    { "source": "/api/catalog", "destination": "/api/bakery?route=catalog" },
+    { "source": "/api/players/:path*", "destination": "/api/bakery?route=players/:path*" }
   ]
 }

@@ -6,28 +6,23 @@ The bakery, animals, pastries, and effects are original pixel art drawn on canva
 
 ## Run locally
 
-Requires Node.js 20.19+ or 22.12+, Java 17+ (Java 25 tested), and Maven 3.6.3+. Use Docker Compose for PostgreSQL, or create a database called `sugarberry` in an existing PostgreSQL instance.
+Requires Node.js 20.19+ or 22.12+. Use Docker Compose for PostgreSQL, or create a database called `sugarberry` in an existing PostgreSQL instance.
 
 From this folder, run:
 
 ```sh
 docker compose up -d --wait db
-```
-
-Start the Java API in one terminal:
-
-```sh
-mvn -f backend/pom.xml spring-boot:run
-```
-
-Start the game in another:
-
-```sh
 npm ci
+```
+
+Start the API in one terminal and the game in another:
+
+```sh
+npm run api
 npm run dev
 ```
 
-Open [the game](http://127.0.0.1:5173/). The API initializes the schema and seed catalog on startup. Defaults are PostgreSQL on port 5432, API on port 8080, and Vite on port 5173. Override the database connection with `DATABASE_URL` (a JDBC URL), `DATABASE_USER`, and `DATABASE_PASSWORD`. If you change the API port with `SERVER_PORT`, set `BAKERY_API` to that API origin when starting Vite.
+Open [the game](http://127.0.0.1:5173/). The API creates the schema and seed catalog on first use. Defaults are PostgreSQL on port 5432, API on port 8080, and Vite on port 5173. Override the database with `DATABASE_URL` (for example `postgresql://user:pass@host:5432/db`). If you change the API port with `PORT`, set `BAKERY_API` to that API origin when starting Vite.
 
 For a quick playtest, just start Vite and open [browser-only mode](http://127.0.0.1:5173/?local=1). This mode saves in the browser. The database mode keeps a separate profile identified by a UUID saved in the browser. Keep the same browser and URL origin to reopen that profile. If an existing database save is temporarily unreachable, the game shows its last confirmed snapshot and retries writes against the API. Browser-only progress stays separate from database progress.
 
@@ -69,7 +64,7 @@ erDiagram
 | POST | `/api/players/{uuid}/actions` | Serve, skip, advance, restock, or upgrade |
 | GET | `/api/players/{uuid}/sales` | Get order counts and revenue by day |
 
-For the viva, start with the four plain SQL statements in `db/demo.sql`: `INSERT`, `SELECT`, `UPDATE`, and `DELETE`. The Spring Boot service uses those same SQL operations through JDBC. Then serve a guest with the server running, then open the ledger. Run the SQL demo for an isolated example of joins, aggregation, and rollback. The demo leaves your real save untouched.
+For the viva, start with the four plain SQL statements in `db/demo.sql`: `INSERT`, `SELECT`, `UPDATE`, and `DELETE`. The Node.js API (`server/bakery.js`) runs those same SQL operations with parameterized queries. Then serve a guest with the API running, then open the ledger. Run the SQL demo for an isolated example of joins, aggregation, and rollback. The demo leaves your real save untouched.
 
 ```sh
 docker compose exec -T db psql -U sugarberry -d sugarberry < db/demo.sql
@@ -80,34 +75,31 @@ docker compose exec -T db psql -U sugarberry -d sugarberry < db/demo.sql
 ```sh
 npm test
 npm run build
-mvn -f backend/pom.xml package
 node scripts/smoke.mjs  # API and PostgreSQL must already be running
 ```
 
 The API smoke script creates and removes its own profile. It checks player CRUD, a recipe join, duplicate concurrent sale submission, daily revenue, an oven purchase, a refill, and a rejected refill. For the built frontend, use `npm run preview` to serve `dist` with the same API proxy.
 
-Open /demo.html for the interactive database demonstration. It runs PostgreSQL in the browser with PGlite and stores demo records on this device. Use /demo.html?server=1 to use the Spring Boot API instead. It displays eight separate tables read from PostgreSQL. The four catalog tables load before you create a profile. Create a disposable profile, serve a sale, and match the order ID in Orders to its line item. Compare the coin and stock changes shown above the tables. The demo profile is separate from your game save.
+Open /demo.html for the interactive database demonstration. It runs PostgreSQL in the browser with PGlite and stores demo records on this device. Use /demo.html?server=1 to use the hosted API and PostgreSQL database instead. It displays eight separate tables read from PostgreSQL. The four catalog tables load before you create a profile. Create a disposable profile, serve a sale, and match the order ID in Orders to its line item. Compare the coin and stock changes shown above the tables. The demo profile is separate from your game save.
 
 Click the oven or counter to bake, the shelves for the pantry, or the register for sales. After adding ingredients, drag around the bowl or press Whisk eight times before timing the oven.
 
 ## Deploy on Vercel
 
-The default database demo at `/demo.html` works on a static Vercel deployment. It uses the same SQL schema and seed files as Spring Boot. Demo records stay in that browser and are separate from the game's save.
+Everything runs on one Vercel project. Vite builds the game, and `api/bakery.js` serves every `/api/*` route as a Node.js function backed by PostgreSQL.
 
-### Optional hosted Spring Boot API
+1. In the Vercel project, open **Storage**, create a **Neon** Postgres database, and connect it to Production and Preview. This adds `DATABASE_URL`.
+2. Redeploy. The first API request creates the tables and seeds the catalog.
+3. Check `https://YOUR-SITE/api/catalog` returns JSON, then open `/demo.html?server=1`, create a demo profile, serve an order, and check daily totals. From a terminal: `BAKERY_API=https://YOUR-SITE node scripts/smoke.mjs`.
 
-Vercel serves the Vite frontend and forwards its same-origin API calls to the hosted Spring Boot service. Deploy the contents of the `backend` directory as a Docker service on a host that supports containers, such as Railway or Render. Attach PostgreSQL and set `DATABASE_URL` to its JDBC URL (for example, `jdbc:postgresql://HOST:5432/DB?sslmode=require` when the provider requires TLS), plus `DATABASE_USER` and `DATABASE_PASSWORD`. Spring Boot initializes the schema and demo catalog at startup.
-
-1. Check that `https://YOUR-BACKEND/api/catalog` returns JSON.
-2. In the Vercel project, add `BAKERY_API_ORIGIN=https://YOUR-BACKEND` for the environments you deploy. Redeploy after saving the variable. Keep the database credentials on the backend host.
-3. Open `/demo.html?server=1` on the Vercel site and create a demo profile. Serve an order, check daily totals, then delete the demo profile. To check the same flow from a terminal, run `BAKERY_API=https://YOUR-VERCEL-SITE node scripts/smoke.mjs`.
+The default `/demo.html` still runs PostgreSQL in the browser with PGlite and works without a hosted database.
 
 ## Submission access
 
 - **GitHub** — https://github.com/ripperripz/mochimilk
 - **Hosted database demo** — https://mochimilk.vercel.app/demo.html. It opens the eight PostgreSQL tables in the browser. Its records are stored on that device.
-- **Direct PostgreSQL access** — Start the database and Spring Boot using the local setup above. Open PostgreSQL with the command below, then run `\dt`, `SELECT * FROM ingredients;`, or `SELECT * FROM orders;`. The Compose connection uses host `127.0.0.1`, port `5432`, database `sugarberry`, and the local demo username/password in `compose.yaml`.
-- **API connectivity** — Start the backend and open `http://127.0.0.1:5173/demo.html?server=1`. The API status at the top checks `GET /api/catalog`. Open `http://127.0.0.1:8080/api/catalog` directly to see the JSON response, or run `node scripts/smoke.mjs` to check reads and writes.
+- **Direct PostgreSQL access** — Use the Neon SQL editor in Vercel → Storage, or start the database locally with the setup above. Open PostgreSQL with the command below, then run `\dt`, `SELECT * FROM ingredients;`, or `SELECT * FROM orders;`. The Compose connection uses host `127.0.0.1`, port `5432`, database `sugarberry`, and the local demo username/password in `compose.yaml`.
+- **Hosted API** — https://mochimilk.vercel.app/demo.html?server=1 and https://mochimilk.vercel.app/api/catalog. Locally, start the API and open `http://127.0.0.1:5173/demo.html?server=1`. The API status at the top checks `GET /api/catalog`. Open `http://127.0.0.1:8080/api/catalog` locally to see the JSON response, or run `node scripts/smoke.mjs` to check reads and writes.
 
 ```sh
 docker compose exec db psql -U sugarberry -d sugarberry

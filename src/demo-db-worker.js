@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { worker } from '@electric-sql/pglite/worker';
-import schema from '../backend/src/main/resources/schema.sql?raw';
-import seeds from '../backend/src/main/resources/data.sql?raw';
+import schema from '../db/schema.sql?raw';
+import seeds from '../db/data.sql?raw';
 
 worker({
   async init({ dataDir }) {
