@@ -15,7 +15,11 @@ const catalogTables = {
   customers: ['id', 'name', 'species', 'rotation'],
 };
 const $ = selector => document.querySelector(selector);
-const storageKey = 'bakery-demo';
+const serverMode = new URLSearchParams(location.search).has('server');
+const storageKey = serverMode ? 'bakery-demo' : 'bakery-demo-browser';
+$('#database-mode').textContent = serverMode
+  ? 'Connected through the Spring Boot API.'
+  : 'PostgreSQL runs in this browser. Demo data stays on this device.';
 let id = sessionStorage.getItem(storageKey);
 let state;
 let busy = false;
@@ -43,6 +47,33 @@ async function request(path, method = 'GET', body) {
   if (!response.ok) throw Object.assign(Error(data.detail || 'Request failed.'), { status: response.status });
   return data;
 }
+
+const server = {
+  create: id => request('/players/' + id, 'PUT'),
+  read: id => request('/players/' + id),
+  rename: (id, name) => request('/players/' + id, 'PATCH', { name }),
+  remove: id => request('/players/' + id, 'DELETE'),
+  serve: (id, state) => request('/players/' + id + '/actions', 'POST', {
+    action: 'serve', perfect: true, day: state.day, slot: state.slot,
+    revision: state.revision, requestId: crypto.randomUUID(),
+  }),
+  sales: id => request('/players/' + id + '/sales'),
+  tables: id => request(id ? '/players/' + id + '/tables' : '/tables'),
+};
+const database = serverMode ? Promise.resolve(server) : import('./demo-db.js');
+
+async function checkApi() {
+  try {
+    const catalog = await request('/catalog');
+    if (!Array.isArray(catalog.products)) throw Error('Unexpected catalog response.');
+    $('#api-status').textContent = 'Connected · GET /api/catalog returned catalog data.';
+  } catch (error) {
+    $('#api-status').textContent = 'Unavailable · ' + error.message
+      + (serverMode ? '' : ' Browser database mode is available independently.');
+  }
+}
+
+checkApi();
 
 function renderTable(name, columns, rows) {
   const section = document.createElement('section');
@@ -85,7 +116,7 @@ function renderTable(name, columns, rows) {
 }
 
 async function refreshTables() {
-  const rows = await request(id ? '/players/' + id + '/tables' : '/tables');
+  const rows = await (await database).tables(id);
   for (const [selector, tables] of [['#profile-tables', profileTables], ['#catalog-tables', catalogTables]]) {
     $(selector).replaceChildren(...Object.entries(tables).map(([name, columns]) =>
       renderTable(name, columns, rows[name] || [])));
@@ -109,29 +140,27 @@ async function run(action) {
   controls();
   $('#status').textContent = 'Working…';
   try {
+    const db = await database;
     const before = state;
     if (action === 'create') {
       id ||= crypto.randomUUID();
       sessionStorage.setItem(storageKey, id);
-      state = await request('/players/' + id, 'PUT');
+      state = await db.create(id);
     } else if (action === 'rename') {
-      state = await request('/players/' + id, 'PATCH', { name: $('#name').value });
+      state = await db.rename(id, $('#name').value);
     } else if (action === 'serve') {
-      state = await request('/players/' + id + '/actions', 'POST', {
-        action: 'serve', perfect: true, day: state.day, slot: state.slot,
-        revision: state.revision, requestId: crypto.randomUUID(),
-      });
+      state = await db.serve(id, state);
       const changes = Object.keys(state.stock).filter(key => before.stock[key] !== state.stock[key])
         .map(key => key + ' ' + before.stock[key] + ' → ' + state.stock[key]);
       $('#sale-summary').textContent = 'Coins ' + before.coins + ' → ' + state.coins + '. Stock: ' + changes.join(', ') + '.';
       $('#sale-summary').hidden = false;
       $('#daily-section').hidden = true;
     } else if (action === 'sales') {
-      const totals = await request('/players/' + id + '/sales');
+      const totals = await db.sales(id);
       $('#daily-table').replaceChildren(renderTable('Sales by day', ['day', 'orders', 'revenue'], totals));
       $('#daily-section').hidden = false;
     } else if (action === 'delete') {
-      await request('/players/' + id, 'DELETE');
+      await db.remove(id);
       state = undefined;
       id = null;
       sessionStorage.removeItem(storageKey);
@@ -139,7 +168,7 @@ async function run(action) {
       $('#sale-summary').hidden = true;
     } else if (id) {
       try {
-        state = await request('/players/' + id);
+        state = await db.read(id);
       } catch (error) {
         if (error.status !== 404) throw error;
         state = undefined;

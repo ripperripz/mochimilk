@@ -5,5 +5,7 @@ export default defineConfig({
   server: { proxy },
   preview: { proxy },
   base: './',
+  optimizeDeps: { exclude: ['@electric-sql/pglite'] },
+  worker: { format: 'es' },
   build: { rollupOptions: { input: { game: 'index.html', demo: 'demo.html' } } },
 });

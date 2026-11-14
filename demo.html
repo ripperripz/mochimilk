@@ -9,8 +9,13 @@
   <main class="game-shell db-demo">
     <header class="db-heading">
       <h1>Sugarberry Bakery Database</h1>
-      <p>Follow a sale through the PostgreSQL tables.</p>
-      <a href="./">Return to the game</a>
+      <p id="database-mode">Follow a sale through the PostgreSQL tables.</p>
+      <p><strong>API connection</strong> <span id="api-status" role="status">Checking…</span></p>
+      <nav aria-label="Database mode">
+        <a href="./demo.html">Browser database</a> ·
+        <a href="./demo.html?server=1">Spring Boot API mode</a> ·
+        <a href="./">Return to the game</a>
+      </nav>
     </header>
     <section class="recipe-book" aria-label="Demo profile">
       <label for="name">Profile name</label>
