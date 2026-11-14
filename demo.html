@@ -3,46 +3,63 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Sugarberry Bakery Database</title>
+  <meta name="theme-color" content="#f8e9d7">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23f2c3b5'/%3E%3Ccircle cx='8' cy='9' r='4.5' fill='%23fff8e9'/%3E%3Ccircle cx='8' cy='9' r='1.6' fill='%23e58b9c'/%3E%3C/svg%3E">
+  <title>Database · Mochi &amp; Milk</title>
 </head>
 <body>
   <main class="game-shell db-demo">
     <header class="db-heading">
-      <h1>Sugarberry Bakery Database</h1>
-      <p id="database-mode">Follow a sale through the PostgreSQL tables.</p>
-      <p><strong>API connection</strong> <span id="api-status" role="status">Checking…</span></p>
-      <nav aria-label="Database mode">
-        <a href="./demo.html">Browser database</a> ·
-        <a href="./demo.html?server=1">Spring Boot API mode</a> ·
-        <a href="./">Return to the game</a>
-      </nav>
+      <h1>Mochi <i>&amp;</i> Milk · Database</h1>
+      <p>Live rows from the PostgreSQL database behind the game. Play in another tab and watch them change.</p>
+      <p><strong>Status:</strong> <span id="api-status" role="status">Checking…</span></p>
+      <nav aria-label="Pages"><a href="./">Back to the game</a></nav>
     </header>
-    <section class="recipe-book" aria-label="Demo profile">
-      <label for="name">Profile name</label>
-      <input id="name" value="Viva Bakery" maxlength="40">
-      <div class="demo-controls">
+
+    <section class="recipe-book" aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Your bakery</h2>
+      <p id="profile">Loading…</p>
+      <div class="demo-controls" id="controls">
         <button data-action="create" type="button">Create profile</button>
-        <button data-action="rename" type="button">Rename</button>
-        <button data-action="read" type="button">Refresh records</button>
-        <button data-action="serve" type="button">Serve order</button>
+        <button data-action="serve" type="button">Serve ticket</button>
+        <button data-action="skip" type="button">Let guest go</button>
+        <button data-action="next" type="button">Open next day</button>
+        <span class="demo-field">
+          <select id="restock-item" aria-label="Ingredient to refill"></select>
+          <button data-action="restock" type="button">Refill +6</button>
+        </span>
+        <span class="demo-field">
+          <select id="upgrade-item" aria-label="Upgrade to buy">
+            <option value="decor">Berry bunting (28)</option>
+            <option value="oven">Copper oven (40)</option>
+          </select>
+          <button data-action="upgrade" type="button">Buy</button>
+        </span>
+        <span class="demo-field">
+          <input id="name" maxlength="40" aria-label="Bakery name" placeholder="Bakery name">
+          <button data-action="rename" type="button">Rename</button>
+        </span>
         <button data-action="sales" type="button">Daily totals</button>
-        <button data-action="delete" type="button">Delete profile</button>
+        <button data-action="delete" type="button">Reset profile</button>
       </div>
-      <p id="status" role="status">Start with Create profile.</p>
+      <p id="status" role="status"></p>
+      <p id="changes" class="db-changes" hidden></p>
     </section>
-    <section aria-labelledby="profile-heading">
-      <h2 id="profile-heading">Player and sale records</h2>
-      <p id="player-description">Create a demo profile to see its player, inventory, and order rows.</p>
-      <p id="sale-summary" hidden></p>
-      <div id="profile-tables" class="demo-grid"></div>
-    </section>
+
     <section id="daily-section" hidden>
-      <h2>Daily totals</h2>
+      <h2>Daily totals <code>GET /api/players/{id}/sales</code></h2>
       <div id="daily-table"></div>
     </section>
+
+    <section aria-labelledby="player-heading">
+      <h2 id="player-heading">Player rows</h2>
+      <p>Only this profile’s rows are shown. Orders and line items cover the latest 20 sales. Changed rows are highlighted.</p>
+      <div id="profile-tables" class="demo-grid"></div>
+    </section>
+
     <section aria-labelledby="catalog-heading">
-      <h2 id="catalog-heading">Bakery catalog</h2>
-      <p>Match <code>ingredient_id</code> and <code>product_id</code> in the recipe table to the ingredients and products below.</p>
+      <h2 id="catalog-heading">Catalog</h2>
+      <p>Match <code>ingredient_id</code> and <code>product_id</code> in <code>recipe_ingredients</code> to the rows below.</p>
       <div id="catalog-tables" class="demo-grid"></div>
     </section>
   </main>

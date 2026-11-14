@@ -2,40 +2,43 @@
 
 Run a little bakery on Sugarberry Lane. Mix a guest’s recipe, time the oven, and serve a warm treat. Every shift has five tickets. Earn coins for pantry refills and two shop upgrades, then unlock Garden Mochi and Cloud Cupcake as you level up.
 
-The bakery, animals, pastries, and effects are original pixel art drawn on canvas and animated with Phaser 3. Baking controls work with a mouse, keyboard, or touch. The sound button mutes the synthesized effects.
+The pixel art is drawn on canvas and animated with Phaser 3. Every save lives in PostgreSQL.
+
+```
+browser (Phaser game, /demo.html)  →  /api/*  →  api/bakery.js (Vercel function)  →  server/bakery.js (SQL)  →  PostgreSQL (Neon)
+```
+
+The browser keeps only a profile UUID and a copy of the last state the database confirmed. Coins, stock, tickets, upgrades, and sales come from the database on every load, so a reload or another device shows the same bakery. If the API can’t be reached, the game shows that saved copy as read-only and offers **Retry saving**.
 
 ## Run locally
 
-Requires Node.js 20.19+ or 22.12+. Use Docker Compose for PostgreSQL, or create a database called `sugarberry` in an existing PostgreSQL instance.
-
-From this folder, run:
+Requires Node.js 20.19+ or 22.12+ and Docker (or any PostgreSQL with a `sugarberry` database).
 
 ```sh
-docker compose up -d --wait db
+docker compose up -d --wait db   # PostgreSQL on 127.0.0.1:5432
 npm ci
+npm run api                      # API on http://127.0.0.1:8080
+npm run dev                      # game on http://127.0.0.1:5173
 ```
 
-Start the API in one terminal and the game in another:
+The API creates the tables and seeds the catalog on its first request. Open [the game](http://127.0.0.1:5173/) and [the database view](http://127.0.0.1:5173/demo.html).
 
-```sh
-npm run api
-npm run dev
-```
-
-Open [the game](http://127.0.0.1:5173/). The API creates the schema and seed catalog on first use. Defaults are PostgreSQL on port 5432, API on port 8080, and Vite on port 5173. Override the database with `DATABASE_URL` (for example `postgresql://user:pass@host:5432/db`). If you change the API port with `PORT`, set `BAKERY_API` to that API origin when starting Vite.
-
-For a quick playtest, just start Vite and open [browser-only mode](http://127.0.0.1:5173/?local=1). This mode saves in the browser. The database mode keeps a separate profile identified by a UUID saved in the browser. Keep the same browser and URL origin to reopen that profile. If an existing database save is temporarily unreachable, the game shows its last confirmed snapshot and retries writes against the API. Browser-only progress stays separate from database progress.
-
-### Playing a shift
+## Playing a shift
 
 1. Click **Bake order** and add the required portions.
-2. Choose **Whisk the batter**, then drag around the bowl or press **Whisk** eight times. Stop the oven needle in the gold zone for a four-coin bonus. You can serve any finished bake.
-3. Choose **Carry to the counter**, then tap the guest in the shop or click **Serve** to complete the sale. A guest can leave when the 95-second clock expires or when you pass on their order. The clock starts on the first bake of a shift, pauses in non-baking panels, and resets on reload.
-4. Use **Pantry** to buy six portions at a time. **Shop** sells a copper oven that makes timing easier and berry bunting that changes the room and adds two coins to each sale. **Ledger** shows recent sales and the current day’s totals.
+2. Choose **Whisk the batter**, then drag around the bowl or press **Whisk** eight times. Stop the oven needle in the gold zone for a four-coin bonus.
+3. Choose **Carry to the counter**, then tap the guest or click **Serve**. A guest leaves when the 95-second patience clock runs out or when you let them go.
+4. **Pantry** buys six portions at a time. **Shop** sells a copper oven (wider gold zone) and berry bunting (+2 coins per sale). **Ledger** shows recent sales and today’s totals.
+
+To continue on another device, open the link shown in the database view (`/?profile=<uuid>`).
+
+## Database view
+
+`/demo.html` reads the live tables through the API every few seconds. Open it next to the game: serving a guest adds an `orders` row and an `order_items` row, lowers `inventory`, and raises the player’s coins. Changed cells are highlighted. The view can also run the game’s actions (serve, skip, next day, refill, upgrade, rename, daily totals, reset) on the same profile, and it prints what each commit changed.
 
 ## DBMS viva
 
-Eight tables keep the catalog, stock, and sales separate. `recipe_ingredients` links products to ingredients and `inventory` gives every player their own stock. An order records the customer and shift position. Its line item snapshots the sale price so past totals survive later menu price changes.
+Eight tables. Four hold the catalog (`customers`, `products`, `ingredients`, `recipe_ingredients`) and four hold each player’s data (`players`, `inventory`, `orders`, `order_items`). The SQL lives in `db/schema.sql` and `db/data.sql`.
 
 ```mermaid
 erDiagram
@@ -49,58 +52,69 @@ erDiagram
     PRODUCTS ||--o{ ORDER_ITEMS : sold_as
 ```
 
-- **Keys and constraints**. Composite keys prevent duplicate recipe and stock entries. Foreign keys preserve relationships. Checks reject negative stock and coins. A unique player/day/slot key prevents two sales for the same ticket.
-- **Transactions**. The sale locks the player row, checks the save revision, deducts recipe portions, writes the order and line item, and credits coins and XP. Any shortage rolls back the entire sale. Restocks and upgrades also run in transactions. An immediate request retry returns the confirmed state, and older revisions cannot apply the same purchase twice.
-- **Joins and aggregation**. The catalog joins recipes to products. The ledger joins sales to customer and product names. The daily summary counts orders and sums line totals plus one bonus per order.
-- **Scope**. The API is local by default and uses a browser-held profile ID. The oven score and patience timer run in the client. The server enforces stock, prices, ticket order, and balances.
+- **Keys and constraints.** `recipe_ingredients` and `inventory` are many-to-many link tables with composite primary keys. Foreign keys protect every relationship, and deleting a player cascades to its inventory, orders, and line items. Checks reject negative stock or coins. `orders_one_sale_per_ticket UNIQUE (player_id, day, slot)` stops two sales for one ticket. `order_items.unit_price` snapshots the price, so old totals survive menu changes.
+- **Transactions.** A sale locks the player row (`SELECT … FOR UPDATE`), checks the revision, deducts each recipe portion with `UPDATE … WHERE quantity >= n`, inserts the order and line item, then credits coins and XP. Any shortage rolls back the whole sale. Refills and upgrades run the same way. `revision` gives optimistic concurrency between devices, and `last_request` makes a retried request return the saved result instead of applying it twice.
+- **Joins and aggregation.** The catalog joins products to recipes. The ledger joins orders to customers, line items, and products. Daily totals use `GROUP BY day` with `COUNT` and `SUM`.
+- **Indexes.** The ledger query uses the `orders_one_sale_per_ticket` index (an index scan backward for `ORDER BY day DESC, slot DESC`). Inventory and line-item lookups use their primary keys. `order_items_product_idx` indexes the foreign key to products.
+- **Scope.** The oven score and the patience clock run in the browser. The server enforces stock, prices, ticket order, balances, and upgrades. Profiles are anonymous UUIDs; there are no accounts.
 
 | Method | Endpoint | What it does |
 | --- | --- | --- |
-| PUT | `/api/players/{uuid}` | Create a profile and its pantry, or reopen it |
-| GET | `/api/players/{uuid}` | Read the saved shift and recent sales |
-| PATCH | `/api/players/{uuid}` | Rename a profile with `{"name":"My Bakery"}` |
-| DELETE | `/api/players/{uuid}` | Delete a profile and its dependent rows |
-| GET | `/api/catalog` | Read the seed catalog and joined recipes |
-| POST | `/api/players/{uuid}/actions` | Serve, skip, advance, restock, or upgrade |
-| GET | `/api/players/{uuid}/sales` | Get order counts and revenue by day |
+| GET | `/api/catalog` | Products with joined recipes, ingredients, customers |
+| GET | `/api/tables` | Raw rows of the four catalog tables |
+| PUT | `/api/players/{uuid}` | Create a profile and its starting inventory, or reopen it |
+| GET | `/api/players/{uuid}` | Saved shift, stock, and the last 20 sales |
+| PATCH | `/api/players/{uuid}` | Rename with `{"name":"My Bakery"}` |
+| DELETE | `/api/players/{uuid}` | Delete a profile; rows cascade |
+| POST | `/api/players/{uuid}/actions` | `serve`, `skip`, `next`, `restock`, or `upgrade` in one transaction |
+| GET | `/api/players/{uuid}/sales` | Orders and revenue per day |
+| GET | `/api/players/{uuid}/tables` | Raw rows of all eight tables for one profile |
 
-For the viva, start with the four plain SQL statements in `db/demo.sql`: `INSERT`, `SELECT`, `UPDATE`, and `DELETE`. The Node.js API (`server/bakery.js`) runs those same SQL operations with parameterized queries. Then serve a guest with the API running, then open the ledger. Run the SQL demo for an isolated example of joins, aggregation, and rollback. The demo leaves your real save untouched.
+`db/demo.sql` is a self-contained walkthrough: `INSERT`, `SELECT`, `UPDATE`, a recipe join, a sale, a ledger join, a daily total, an `EXPLAIN` that shows the index, three statements rejected by `CHECK`, `UNIQUE`, and `FOREIGN KEY`, and a `DELETE` undone with a savepoint. It runs inside one transaction and rolls back, so real saves are untouched.
 
 ```sh
 docker compose exec -T db psql -U sugarberry -d sugarberry < db/demo.sql
 ```
 
+On Neon, paste the file into the SQL editor, or run `psql "$DATABASE_URL" -f db/demo.sql`.
+
 ## Checks
 
 ```sh
-npm test
+npm test                  # model, Vercel handler, and (if PostgreSQL is up) a full shift through the API
 npm run build
-node scripts/smoke.mjs  # API and PostgreSQL must already be running
+node scripts/smoke.mjs    # needs `npm run api`; creates and deletes its own profile
 ```
 
-The API smoke script creates and removes its own profile. It checks player CRUD, a recipe join, duplicate concurrent sale submission, daily revenue, an oven purchase, a refill, and a rejected refill. For the built frontend, use `npm run preview` to serve `dist` with the same API proxy.
-
-Open /demo.html for the interactive database demonstration. It runs PostgreSQL in the browser with PGlite and stores demo records on this device. Use /demo.html?server=1 to use the hosted API and PostgreSQL database instead. It displays eight separate tables read from PostgreSQL. The four catalog tables load before you create a profile. Create a disposable profile, serve a sale, and match the order ID in Orders to its line item. Compare the coin and stock changes shown above the tables. The demo profile is separate from your game save.
-
-Click the oven or counter to bake, the shelves for the pantry, or the register for sales. After adding ingredients, drag around the bowl or press Whisk eight times before timing the oven.
+`npm test` calls `api/bakery.js` the way Vercel does. It checks the 503 when no database is configured, plays a full shift, refills, upgrades, then reopens the save with a fresh connection pool.
 
 ## Deploy on Vercel
 
-Everything runs on one Vercel project. Vite builds the game, and `api/bakery.js` serves every `/api/*` route as a Node.js function backed by PostgreSQL.
+Vite builds the game into `dist`, and `api/bakery.js` serves every `/api/*` route as one Node.js function. `vercel.json` rewrites the routes and ships `db/schema.sql` and `db/data.sql` with the function.
 
-1. In the Vercel project, open **Storage**, create a **Neon** Postgres database, and connect it to Production and Preview. This adds `DATABASE_URL`.
-2. Redeploy. The first API request creates the tables and seeds the catalog.
-3. Check `https://YOUR-SITE/api/catalog` returns JSON, then open `/demo.html?server=1`, create a demo profile, serve an order, and check daily totals. From a terminal: `BAKERY_API=https://YOUR-SITE node scripts/smoke.mjs`.
+1. Import the repository into Vercel. The defaults are fine (framework Vite, build `npm run build`, output `dist`).
+2. Open **Storage → Create Database → Neon**. Connect it to **Production** and **Preview**. This adds `DATABASE_URL`.
+3. **Deployments → Redeploy** the latest deployment so the function picks up the variable.
+4. Verify:
+   - `https://mochimilk.vercel.app/api/catalog` returns JSON. A `503` that mentions `DATABASE_URL` means step 2 or 3 is missing.
+   - `BAKERY_API=https://mochimilk.vercel.app node scripts/smoke.mjs` passes.
+   - Serve a guest in the game, then open `/demo.html` and find the new `orders` row.
 
-The default `/demo.html` still runs PostgreSQL in the browser with PGlite and works without a hosted database.
+The first request on a new instance creates the tables and seeds the catalog. The script is idempotent and runs under an advisory lock.
 
-## Submission access
+| Variable | Needed | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Production and Preview | PostgreSQL connection string. Neon adds it; use its pooled URL. `POSTGRES_URL` also works. |
+| `DATABASE_POOL_SIZE` | Optional | Connections per function instance (default 3). |
+| `PORT` | Local only | Port for `npm run api` (default 8080). |
+| `BAKERY_API` | Local only | API origin for the Vite proxy and the smoke script (default `http://127.0.0.1:8080`). |
 
-- **GitHub** — https://github.com/ripperripz/mochimilk
-- **Hosted database demo** — https://mochimilk.vercel.app/demo.html. It opens the eight PostgreSQL tables in the browser. Its records are stored on that device.
-- **Direct PostgreSQL access** — Use the Neon SQL editor in Vercel → Storage, or start the database locally with the setup above. Open PostgreSQL with the command below, then run `\dt`, `SELECT * FROM ingredients;`, or `SELECT * FROM orders;`. The Compose connection uses host `127.0.0.1`, port `5432`, database `sugarberry`, and the local demo username/password in `compose.yaml`.
-- **Hosted API** — https://mochimilk.vercel.app/demo.html?server=1 and https://mochimilk.vercel.app/api/catalog. Locally, start the API and open `http://127.0.0.1:5173/demo.html?server=1`. The API status at the top checks `GET /api/catalog`. Open `http://127.0.0.1:8080/api/catalog` locally to see the JSON response, or run `node scripts/smoke.mjs` to check reads and writes.
+Locally, without `DATABASE_URL`, the API uses the Compose database `postgresql://sugarberry:sugarberry@127.0.0.1:5432/sugarberry`. On Vercel it never falls back to localhost.
 
-```sh
-docker compose exec db psql -U sugarberry -d sugarberry
-```
+## Submission
+
+- **Game**: https://mochimilk.vercel.app
+- **Database view**: https://mochimilk.vercel.app/demo.html
+- **API**: https://mochimilk.vercel.app/api/catalog
+- **Source**: https://github.com/ripperripz/mochimilk
+- **Direct SQL**: the Neon SQL editor (open the database from Vercel → Storage), or locally `docker compose exec db psql -U sugarberry -d sugarberry`, then `\dt`, `SELECT * FROM orders;`, or `db/demo.sql`.

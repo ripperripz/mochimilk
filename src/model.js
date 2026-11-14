@@ -1,3 +1,4 @@
+// Art and display data for the client. Prices and recipes are replaced by GET /api/catalog at startup.
 export const ingredients = [
   { id: 'flour', name: 'Flour', price: 4, color: '#e2bf94' },
   { id: 'milk', name: 'Milk', price: 5, color: '#a8c9ca' },
@@ -23,10 +24,6 @@ export const upgrades = {
 };
 export const shiftSize = 5;
 export const levelOf = (xp) => 1 + Math.floor(xp / 3);
-export const newGame = () => ({
-  day: 1, slot: 0, served: 0, coins: 24, xp: 0, oven: false, decor: false,
-  stock: { flour: 20, milk: 14, berry: 12, sugar: 12 }, history: [],
-});
 export function ticket(state, offset = 0) {
   const position = state.slot + offset;
   if (position >= shiftSize) return null;
@@ -36,48 +33,3 @@ export function ticket(state, offset = 0) {
 }
 export const canBake = (state, product) => Object.entries(product.recipe)
   .every(([id, amount]) => state.stock[id] >= amount);
-
-export function updateLocal(state, command) {
-  const next = { ...state, stock: { ...state.stock }, history: [...state.history] };
-  const current = ticket(state);
-  switch (command.action) {
-    case 'serve': {
-      if (!current || !canBake(state, current.product)) throw Error('The order or pantry has changed.');
-      const { customer, product } = current;
-      const total = product.price + (command.perfect ? 4 : 0) + (state.decor ? 2 : 0);
-      for (const [id, amount] of Object.entries(product.recipe)) next.stock[id] -= amount;
-      next.history.unshift({ day: state.day, slot: state.slot, customer: customer.name, product: product.name, total });
-      next.coins += total;
-      next.served++;
-      next.xp++;
-      next.slot++;
-      break;
-    }
-    case 'skip':
-      if (!current) throw Error('The shift is already over.');
-      next.slot++;
-      break;
-    case 'next':
-      if (current) throw Error('Finish this shift first.');
-      next.day++;
-      next.slot = 0;
-      next.served = 0;
-      break;
-    case 'restock': {
-      const item = ingredients.find(ingredient => ingredient.id === command.item);
-      if (!item || next.coins < item.price) throw Error('You need more coins.');
-      next.coins -= item.price;
-      next.stock[item.id] += 6;
-      break;
-    }
-    case 'upgrade': {
-      const item = upgrades[command.item];
-      if (!item || next[command.item] || next.coins < item.cost) throw Error('This upgrade is unavailable.');
-      next.coins -= item.cost;
-      next[command.item] = true;
-      break;
-    }
-    default: throw Error('Unknown bakery action.');
-  }
-  return next;
-}

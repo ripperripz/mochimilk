@@ -1,193 +1,223 @@
+// Database view: reads the live tables through the API and runs the same actions as the game.
 import '@fontsource/fraunces/latin-700.css';
 import '@fontsource/nunito/latin-500.css';
 import './style.css';
 
-const profileTables = {
-  players: ['id', 'name', 'coins', 'xp', 'day', 'slot'],
-  inventory: ['player_id', 'ingredient_id', 'quantity'],
-  orders: ['id', 'player_id', 'customer_id', 'day', 'slot', 'bonus'],
-  order_items: ['order_id', 'product_id', 'quantity', 'unit_price'],
+const playerTables = {
+  players: { columns: ['id', 'name', 'coins', 'xp', 'day', 'slot', 'served', 'oven', 'decor', 'revision'], key: ['id'] },
+  inventory: { columns: ['player_id', 'ingredient_id', 'quantity'], key: ['ingredient_id'] },
+  orders: { columns: ['id', 'customer_id', 'day', 'slot', 'bonus', 'served_at'], key: ['id'] },
+  order_items: { columns: ['order_id', 'product_id', 'quantity', 'unit_price'], key: ['order_id', 'product_id'] },
 };
 const catalogTables = {
-  ingredients: ['id', 'name', 'refill_price', 'starting_stock'],
-  products: ['id', 'name', 'price', 'unlock_level'],
-  recipe_ingredients: ['product_id', 'ingredient_id', 'portions'],
-  customers: ['id', 'name', 'species', 'rotation'],
+  ingredients: { columns: ['id', 'name', 'refill_price', 'starting_stock'], key: ['id'] },
+  products: { columns: ['id', 'name', 'price', 'unlock_level'], key: ['id'] },
+  recipe_ingredients: { columns: ['product_id', 'ingredient_id', 'portions'], key: ['product_id', 'ingredient_id'] },
+  customers: { columns: ['id', 'name', 'species', 'rotation'], key: ['id'] },
 };
+const profileKey = 'sugarberry-profile-v1'; // Shared with the game, so both pages show one save.
 const $ = selector => document.querySelector(selector);
-const serverMode = new URLSearchParams(location.search).has('server');
-const storageKey = serverMode ? 'bakery-demo' : 'bakery-demo-browser';
-$('#database-mode').textContent = serverMode
-  ? 'Connected through the Spring Boot API.'
-  : 'PostgreSQL runs in this browser. Demo data stays on this device.';
-let id = sessionStorage.getItem(storageKey);
-let state;
+
+let id = readProfile();
+let rows = null;     // Latest /tables response.
+let previous = null; // Response before the latest change, for highlighting.
 let busy = false;
 
-function controls() {
-  document.querySelectorAll('[data-action]').forEach(button => {
-    const action = button.dataset.action;
-    button.disabled = busy || (action === 'create' ? Boolean(state) : !state)
-      || (action === 'serve' && state.slot >= 5);
-  });
+function readProfile() {
+  try { return JSON.parse(localStorage.getItem(profileKey)); } catch { return null; }
 }
 
 async function request(path, method = 'GET', body) {
-  const response = await fetch('/api' + path, {
-    method, headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(12000),
-  });
-  if (response.status === 204) return;
+  let response;
+  try {
+    response = await fetch('/api' + path, {
+      method, cache: 'no-store', signal: AbortSignal.timeout(12000),
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw Error('Could not reach the bakery API.');
+  }
+  if (response.status === 204) return null;
   if (!response.headers.get('content-type')?.includes('json')) {
-    throw Error('The bakery API did not return JSON. Check the deployment routing.');
+    throw Error('The API did not return JSON (HTTP ' + response.status + '). Check the deployment routing.');
   }
   const data = await response.json();
   if (!response.ok) throw Object.assign(Error(data.detail || 'Request failed.'), { status: response.status });
   return data;
 }
 
-const server = {
-  create: id => request('/players/' + id, 'PUT'),
-  read: id => request('/players/' + id),
-  rename: (id, name) => request('/players/' + id, 'PATCH', { name }),
-  remove: id => request('/players/' + id, 'DELETE'),
-  serve: (id, state) => request('/players/' + id + '/actions', 'POST', {
-    action: 'serve', perfect: true, day: state.day, slot: state.slot,
-    revision: state.revision, requestId: crypto.randomUUID(),
-  }),
-  sales: id => request('/players/' + id + '/sales'),
-  tables: id => request(id ? '/players/' + id + '/tables' : '/tables'),
-};
-const database = serverMode ? Promise.resolve(server) : import('./demo-db.js');
+const player = () => rows?.players?.[0];
+const keyOf = (spec, row) => spec.key.map(column => row[column]).join('|');
 
-async function checkApi() {
-  try {
-    const catalog = await request('/catalog');
-    if (!Array.isArray(catalog.products)) throw Error('Unexpected catalog response.');
-    $('#api-status').textContent = 'Connected · GET /api/catalog returned catalog data.';
-  } catch (error) {
-    $('#api-status').textContent = 'Unavailable · ' + error.message
-      + (serverMode ? '' : ' Browser database mode is available independently.');
-  }
-}
-
-checkApi();
-
-function renderTable(name, columns, rows) {
+function renderTable(name, spec, list, before) {
   const section = document.createElement('section');
   section.className = 'db-table';
   const heading = document.createElement('h3');
-  heading.textContent = name;
+  heading.textContent = `${name} (${list.length})`;
   section.append(heading);
-  if (!rows.length) {
-    const empty = document.createElement('p');
-    empty.textContent = 'No rows yet.';
-    section.append(empty);
+  if (!list.length) {
+    section.append(Object.assign(document.createElement('p'), { textContent: 'No rows yet.' }));
     return section;
   }
-  const scroll = document.createElement('div');
-  scroll.className = 'db-table-scroll';
+  const old = before && new Map(before.map(row => [keyOf(spec, row), row]));
   const table = document.createElement('table');
   table.setAttribute('aria-label', name);
   const header = table.createTHead().insertRow();
-  for (const column of columns) {
-    const cell = document.createElement('th');
-    cell.scope = 'col';
-    cell.textContent = column;
-    header.append(cell);
+  for (const column of spec.columns) {
+    header.append(Object.assign(document.createElement('th'), { scope: 'col', textContent: column }));
   }
   const body = table.createTBody();
-  for (const row of rows) {
-    const cells = body.insertRow();
-    for (const column of columns) {
-      const cell = cells.insertCell();
-      cell.textContent = row[column];
-      if (/^[a-f0-9-]{36}$/i.test(cell.textContent)) {
-        cell.title = cell.textContent;
-        cell.className = 'db-uuid';
+  for (const row of list) {
+    const tr = body.insertRow();
+    const was = old?.get(keyOf(spec, row));
+    if (old && !was) tr.className = 'db-new';
+    for (const column of spec.columns) {
+      const cell = tr.insertCell();
+      let value = row[column];
+      if (column === 'served_at' && value) value = new Date(value).toLocaleTimeString();
+      cell.textContent = value;
+      if (/^[a-f0-9-]{36}$/i.test(String(value))) { cell.title = value; cell.className = 'db-uuid'; }
+      if (was && was[column] !== row[column]) {
+        cell.classList.add('db-changed');
+        cell.title = 'was ' + was[column];
       }
     }
   }
+  const scroll = document.createElement('div');
+  scroll.className = 'db-table-scroll';
   scroll.append(table);
   section.append(scroll);
   return section;
 }
 
-async function refreshTables() {
-  const rows = await (await database).tables(id);
-  for (const [selector, tables] of [['#profile-tables', profileTables], ['#catalog-tables', catalogTables]]) {
-    $(selector).replaceChildren(...Object.entries(tables).map(([name, columns]) =>
-      renderTable(name, columns, rows[name] || [])));
+function render() {
+  const p = player();
+  for (const [selector, tables] of [['#profile-tables', playerTables], ['#catalog-tables', catalogTables]]) {
+    $(selector).replaceChildren(...Object.entries(tables).map(([name, spec]) =>
+      renderTable(name, spec, rows?.[name] || [], previous?.[name])));
   }
-  $('#player-description').textContent = state
-    ? 'Only the demo profile is shown. Orders and line items cover the latest 20 sales.'
-    : 'Create a demo profile to see its player, inventory, and order rows.';
+  if (p) {
+    const link = new URL('./?profile=' + p.id, location.href).href;
+    $('#profile').innerHTML = '';
+    $('#profile').append(`${p.name} · day ${p.day}, ticket ${Math.min(p.slot + 1, 5)} of 5 · ${p.coins} coins. Open it on another device: `,
+      Object.assign(document.createElement('a'), { href: link, textContent: link }));
+    if (document.activeElement !== $('#name')) $('#name').value = p.name;
+  } else {
+    $('#profile').textContent = 'This browser has no bakery yet. Create one here or open the game.';
+  }
+  $('#restock-item').replaceChildren(...(rows?.ingredients || []).map(item =>
+    new Option(`${item.name} (${item.refill_price})`, item.id)));
+  for (const button of document.querySelectorAll('[data-action]')) {
+    const action = button.dataset.action;
+    const open = p && p.slot < 5;
+    button.disabled = busy || (action === 'create' ? Boolean(p) : !p)
+      || (['serve', 'skip'].includes(action) && !open) || (action === 'next' && p?.slot !== 5);
+  }
 }
 
-const messages = {
-  create: 'Profile and starting inventory created.',
-  rename: 'Player name updated.',
-  read: 'Records refreshed.',
-  serve: 'Sale committed. Compare the player, inventory, order, and line-item rows.',
-  sales: 'Daily totals loaded.',
-  delete: 'Demo profile deleted. Its inventory and orders were removed too.',
+// Summarise what one action changed, in database terms.
+function describe(before, after) {
+  const a = before.players[0], b = after.players?.[0];
+  if (!b) return 'Deleted the players row; ON DELETE CASCADE removed its inventory, orders, and order_items.';
+  if (!a) return `Inserted 1 players row and ${after.inventory.length} inventory rows (starting stock from ingredients).`;
+  const parts = [];
+  for (const column of ['coins', 'xp', 'day', 'slot', 'oven', 'decor', 'name']) {
+    if (a?.[column] !== b[column]) parts.push(`${column} ${a?.[column]} → ${b[column]}`);
+  }
+  const stock = Object.fromEntries((before.inventory || []).map(row => [row.ingredient_id, row.quantity]));
+  for (const row of after.inventory || []) {
+    if (stock[row.ingredient_id] !== row.quantity) parts.push(`${row.ingredient_id} ${stock[row.ingredient_id] ?? 0} → ${row.quantity}`);
+  }
+  const known = new Set((before.orders || []).map(row => row.id));
+  const added = (after.orders || []).filter(row => !known.has(row.id));
+  if (added.length) parts.push('new orders row ' + added.map(row => '#' + row.id).join(', ') + ' with its order_items line');
+  return parts.length ? 'Committed: ' + parts.join('; ') + '.' : 'Committed. No visible row changed.';
+}
+
+async function load() {
+  const latest = await request(id ? '/players/' + id + '/tables' : '/tables');
+  if (id && !latest.players?.length) {
+    // The profile ID is not in the database (reset elsewhere); show the catalog only.
+    id = null;
+  }
+  if (rows && JSON.stringify(latest) !== JSON.stringify(rows)) previous = rows;
+  rows = latest;
+  $('#api-status').textContent = 'Connected to PostgreSQL · last read ' + new Date().toLocaleTimeString();
+  render();
+}
+
+function command(action, extra = {}) {
+  const p = player();
+  return request('/players/' + id + '/actions', 'POST', {
+    action, day: p.day, slot: p.slot, revision: p.revision, requestId: crypto.randomUUID(), ...extra,
+  });
+}
+
+const actions = {
+  create: async () => {
+    id = crypto.randomUUID();
+    await request('/players/' + id, 'PUT');
+    localStorage.setItem(profileKey, JSON.stringify(id));
+    localStorage.removeItem('sugarberry-db-v1');
+  },
+  serve: () => command('serve', { perfect: true }),
+  skip: () => command('skip'),
+  next: () => command('next'),
+  restock: () => command('restock', { item: $('#restock-item').value }),
+  upgrade: () => command('upgrade', { item: $('#upgrade-item').value }),
+  rename: () => request('/players/' + id, 'PATCH', { name: $('#name').value }),
+  delete: async () => {
+    if (!confirm('Delete this bakery from the database? The game starts a fresh one with the same ID.')) return false;
+    await request('/players/' + id, 'DELETE');
+  },
+  sales: async () => {
+    const totals = await request('/players/' + id + '/sales');
+    $('#daily-table').replaceChildren(renderTable('sales by day', { columns: ['day', 'orders', 'revenue'], key: ['day'] }, totals));
+    $('#daily-section').hidden = false;
+    return false;
+  },
 };
 
 async function run(action) {
   busy = true;
-  controls();
+  render();
   $('#status').textContent = 'Working…';
   try {
-    const db = await database;
-    const before = state;
-    if (action === 'create') {
-      id ||= crypto.randomUUID();
-      sessionStorage.setItem(storageKey, id);
-      state = await db.create(id);
-    } else if (action === 'rename') {
-      state = await db.rename(id, $('#name').value);
-    } else if (action === 'serve') {
-      state = await db.serve(id, state);
-      const changes = Object.keys(state.stock).filter(key => before.stock[key] !== state.stock[key])
-        .map(key => key + ' ' + before.stock[key] + ' → ' + state.stock[key]);
-      $('#sale-summary').textContent = 'Coins ' + before.coins + ' → ' + state.coins + '. Stock: ' + changes.join(', ') + '.';
-      $('#sale-summary').hidden = false;
-      $('#daily-section').hidden = true;
-    } else if (action === 'sales') {
-      const totals = await db.sales(id);
-      $('#daily-table').replaceChildren(renderTable('Sales by day', ['day', 'orders', 'revenue'], totals));
-      $('#daily-section').hidden = false;
-    } else if (action === 'delete') {
-      await db.remove(id);
-      state = undefined;
-      id = null;
-      sessionStorage.removeItem(storageKey);
-      $('#daily-section').hidden = true;
-      $('#sale-summary').hidden = true;
-    } else if (id) {
-      try {
-        state = await db.read(id);
-      } catch (error) {
-        if (error.status !== 404) throw error;
-        state = undefined;
-        id = null;
-        sessionStorage.removeItem(storageKey);
-      }
+    const before = rows;
+    const result = await actions[action]();
+    if (result !== false) {
+      await load();
+      previous = before;
+      render();
+      $('#changes').textContent = describe(before, rows);
+      $('#changes').hidden = false;
+      if (action !== 'sales') $('#daily-section').hidden = true;
     }
-    if (action !== 'sales') await refreshTables();
-    $('#status').textContent = action === 'read' && !id ? 'Start with Create profile.' : messages[action];
+    $('#status').textContent = '';
   } catch (error) {
     $('#status').textContent = error.message;
+    await load().catch(() => {});
   } finally {
     busy = false;
-    controls();
+    render();
   }
 }
 
-document.querySelector('.demo-controls').addEventListener('click', event => {
+$('#controls').addEventListener('click', event => {
   const button = event.target.closest('[data-action]');
   if (button && !busy) run(button.dataset.action);
 });
-run('read');
+
+// Poll while the page is visible so sales made in the game tab appear here.
+async function poll() {
+  if (!busy && !document.hidden) {
+    try { await load(); } catch (error) {
+      $('#api-status').textContent = 'Unavailable · ' + error.message;
+    }
+  }
+}
+window.addEventListener('storage', event => { if (event.key === profileKey) { id = readProfile(); previous = null; poll(); } });
+document.addEventListener('visibilitychange', poll);
+setInterval(poll, 4000);
+poll();

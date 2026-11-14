@@ -1,3 +1,4 @@
+-- Seed catalog. ON CONFLICT DO NOTHING makes it safe to run on every start.
 INSERT INTO customers (id, name, species, rotation) VALUES
     ('miso', 'Miso', 'cat', 0), ('pip', 'Pip', 'frog', 1), ('maple', 'Maple', 'bear', 2),
     ('taro', 'Taro', 'creamcat', 3), ('clover', 'Clover', 'bunny', 4)
@@ -12,7 +13,7 @@ INSERT INTO ingredients (id, name, refill_price, starting_stock) VALUES
     ('flour', 'Flour', 4, 20), ('milk', 'Milk', 5, 14), ('berry', 'Berries', 6, 12), ('sugar', 'Sugar', 4, 12)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO recipe_ingredients VALUES
+INSERT INTO recipe_ingredients (product_id, ingredient_id, portions) VALUES
     ('shortcake', 'flour', 2), ('shortcake', 'milk', 1), ('shortcake', 'berry', 2),
     ('cookie', 'flour', 2), ('cookie', 'milk', 1), ('cookie', 'sugar', 1),
     ('mochi', 'flour', 1), ('mochi', 'berry', 2), ('mochi', 'sugar', 2),

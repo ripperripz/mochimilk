@@ -7,7 +7,7 @@ async function api(url, method = 'GET', body, expected = 200) {
   const response = await fetch(base + '/api' + url, {
     method, headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(6000),
+    signal: AbortSignal.timeout(15000),
   });
   const text = await response.text();
   assert.equal(response.status, expected, text);
@@ -39,6 +39,10 @@ try {
   assert.equal(player.history[0].product, 'Berry Shortcake');
   await api(path + '/actions', 'POST', { ...sale, requestId: crypto.randomUUID() }, 409);
   assert.deepEqual(await api(path + '/sales'), [{ day: 1, orders: 1, revenue: 20 }]);
+  const tables = await api(path + '/tables');
+  assert.equal(tables.orders.length, 1);
+  assert.equal(tables.order_items[0].order_id, tables.orders[0].id);
+  assert.equal(tables.inventory.find(row => row.ingredient_id === 'berry').quantity, 10);
 
   player = await api(path + '/actions', 'POST', action(player, { action: 'upgrade', item: 'oven' }));
   assert.equal(player.oven, true);
@@ -47,7 +51,7 @@ try {
   assert.equal(player.coins, 0);
   await api(path + '/actions', 'POST', action(player, { action: 'restock', item: 'flour' }), 409);
   assert.deepEqual(await api(path), player);
-  console.log('PostgreSQL smoke passed: CRUD, recipe join, concurrent retry, sales aggregation, upgrade, refill, rejected purchase.');
+  console.log('PostgreSQL smoke passed against ' + base + ': CRUD, recipe join, concurrent retry, sales aggregation, table view, upgrade, refill, rejected purchase.');
 } finally {
   await api(path, 'DELETE', undefined, 204);
 }

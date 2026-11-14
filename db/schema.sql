@@ -1,3 +1,6 @@
+-- Mochi & Milk schema. Idempotent: the API runs it on every cold start under an advisory lock.
+-- Catalog: customers, products, ingredients, recipe_ingredients. Per player: players, inventory, orders, order_items.
+
 CREATE TABLE IF NOT EXISTS players (
     id UUID PRIMARY KEY,
     name VARCHAR(40) NOT NULL DEFAULT 'Mochi' CHECK (length(trim(name)) > 0),
@@ -8,8 +11,8 @@ CREATE TABLE IF NOT EXISTS players (
     served INTEGER NOT NULL DEFAULT 0 CHECK (served BETWEEN 0 AND slot AND served <= xp),
     oven BOOLEAN NOT NULL DEFAULT FALSE,
     decor BOOLEAN NOT NULL DEFAULT FALSE,
-    revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
-    last_request UUID
+    revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),  -- optimistic concurrency: bumps on every write
+    last_request UUID                                          -- idempotency: a retried request returns the saved state
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -56,13 +59,19 @@ CREATE TABLE IF NOT EXISTS orders (
     slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 4),
     bonus INTEGER NOT NULL CHECK (bonus IN (0, 2, 4, 6)),
     served_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (player_id, day, slot)
+    CONSTRAINT orders_one_sale_per_ticket UNIQUE (player_id, day, slot)
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
     order_id BIGINT REFERENCES orders(id) ON DELETE CASCADE,
     product_id VARCHAR(20) REFERENCES products(id),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
-    unit_price INTEGER NOT NULL CHECK (unit_price > 0),
+    unit_price INTEGER NOT NULL CHECK (unit_price > 0),  -- price snapshot at sale time
     PRIMARY KEY (order_id, product_id)
 );
+
+-- The hot queries already use key indexes: inventory and order_items by their primary keys,
+-- and the ledger (orders WHERE player_id = ? ORDER BY day DESC, slot DESC) by orders_one_sale_per_ticket.
+-- PostgreSQL does not index foreign keys automatically; this one serves per-product sales reports
+-- and the FK check when a product row is deleted.
+CREATE INDEX IF NOT EXISTS order_items_product_idx ON order_items (product_id);

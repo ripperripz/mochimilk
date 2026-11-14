@@ -6,7 +6,7 @@ import './style.css';
 import { animal, pastry, animals } from './art.js';
 import { startScene } from './scene.js';
 import { icon } from './icons.js';
-import { ingredients, products, customers, upgrades, shiftSize, levelOf, newGame, ticket, canBake, updateLocal } from './model.js';
+import { ingredients, products, customers, upgrades, shiftSize, levelOf, ticket, canBake } from './model.js';
 
 const $ = (selector) => document.querySelector(selector);
 const dialog = $('#dialog');
@@ -25,14 +25,23 @@ function save(key, value) {
   catch { /* The current session can still be played if storage is disabled. */ }
 }
 
-const localKey = 'sugarberry-local-v1';
 const profileKey = 'sugarberry-profile-v1';
+const snapshotKey = 'sugarberry-db-v1';
+const catalogKey = 'sugarberry-catalog-v1';
 const soundKey = 'sugarberry-sound-v1';
+const uuid = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+// ?profile=<uuid> opens the same bakery on another device; the database holds the save.
+const shared = new URLSearchParams(location.search).get('profile');
+if (shared && uuid.test(shared)) {
+  if (shared.toLowerCase() !== read(profileKey, null)) localStorage.removeItem(snapshotKey);
+  save(profileKey, shared.toLowerCase());
+  history.replaceState(null, '', location.pathname);
+}
 let profile = read(profileKey, null);
 let sound = read(soundKey, true);
 let audio;
 let state;
-let mode;
+let online = false;
 let busy = false;
 let pending = null;
 let minigame = null;
@@ -114,12 +123,6 @@ function applyCatalog(catalog) {
 }
 
 async function boot() {
-  if (new URLSearchParams(location.search).has('local')) {
-    state = read(localKey, newGame());
-    mode = 'local';
-    render();
-    return;
-  }
   try {
     const id = profile || crypto.randomUUID();
     const [player, catalog] = await Promise.all([
@@ -127,23 +130,43 @@ async function boot() {
       request('/catalog'),
     ]);
     applyCatalog(catalog);
-    save('sugarberry-catalog-v1', catalog);
+    save(catalogKey, catalog);
     state = player;
     profile = id;
     save(profileKey, id);
-    save('sugarberry-db-v1', state);
-    mode = 'db';
-  } catch {
-    const cached = profile && read('sugarberry-db-v1', null);
-    state = cached || read(localKey, newGame());
-    mode = cached ? 'db' : 'local';
-    if (cached) {
-      const catalog = read('sugarberry-catalog-v1', null);
-      if (catalog) applyCatalog(catalog);
+    save(snapshotKey, state);
+    online = true;
+  } catch (error) {
+    // Show the last state the database confirmed. Changes wait behind Retry saving until it answers.
+    const cached = profile && read(snapshotKey, null);
+    const catalog = read(catalogKey, null);
+    if (cached && catalog) {
+      applyCatalog(catalog);
+      state = cached;
       toast('Showing your last saved shift. Reconnect to make changes.');
+    } else {
+      $('#save-label').textContent = 'Database offline';
+      $('#order').innerHTML = `<article class="order-ticket finished"><h3>The bakery is closed</h3>
+        <p>${escape(error.message)}</p><button type="button" class="primary" data-do="reconnect">Try again</button></article>`;
+      return;
     }
   }
   render();
+}
+
+// Pick up changes made in another tab, on another device, or in the database view.
+async function refresh() {
+  if (!state || busy || pending || dialog.open || prepared) return;
+  try {
+    const latest = await request('/players/' + profile);
+    online = true;
+    if (latest.revision !== state.revision || latest.name !== state.name) {
+      if (latest.day !== state.day || latest.slot !== state.slot) { seconds = 95; clockRunning = false; }
+      state = latest;
+      save(snapshotKey, state);
+      render();
+    } else render(false);
+  } catch { /* Keep the last confirmed state. */ }
 }
 
 function guestImage(customer) {
@@ -157,7 +180,7 @@ function renderWorld() {
 }
 function render(updateWorld = true) {
   const current = ticket(state);
-  $('#save-label').textContent = mode === 'db' ? 'Bakery database' : 'Saved on this device';
+  $('#save-label').textContent = online ? 'Saved in PostgreSQL' : 'Offline · last saved copy';
   $('#day').textContent = 'Day ' + state.day;
   $('#coins').textContent = state.coins;
   $('#shift-state').textContent = current ? 'Bakery open' : 'Shift complete';
@@ -216,16 +239,12 @@ function shop() {
 async function ledger() {
   const history = state.history;
   showPanel('ledger', 'Sales ledger', `<p>${state.xp} treats served across your shifts.</p>
-    <p id="daily-sales" class="daily-sales">${mode === 'db' ? 'Tallying today’s sales…' : ''}</p>
+    <p id="daily-sales" class="daily-sales">Tallying today’s sales…</p>
     ${history.length ? `<div class="ledger-table"><table><caption>Recent sales · last 20</caption><thead><tr><th>Day</th><th>Guest</th><th>Treat</th><th>Coins</th></tr></thead><tbody>${history.slice(0, 20).map(row =>
       `<tr><td>${row.day}</td><td>${escape(row.customer)}</td><td>${escape(row.product)}</td><td>${row.total}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">Your first sale goes here.</p>'}`);
   const summary = $('#daily-sales');
   try {
-    const daily = mode === 'db'
-      ? (await request('/players/' + profile + '/sales')).find(row => row.day === state.day)
-      : history.filter(row => row.day === state.day).reduce((total, row) => ({
-        orders: total.orders + 1, revenue: total.revenue + row.total,
-      }), { orders: 0, revenue: 0 });
+    const daily = (await request('/players/' + profile + '/sales')).find(row => row.day === state.day);
     summary.textContent = `Day ${state.day} · ${daily?.orders ?? 0} sold · ${daily?.revenue ?? 0} coins earned`;
   } catch {
     summary.textContent = 'Daily totals are available when connected.';
@@ -340,15 +359,11 @@ async function change(input) {
   render(false);
   try {
     const oldLevel = levelOf(state.xp);
-    if (mode === 'db') {
-      state = await request('/players/' + profile + '/actions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
-      });
-      save('sugarberry-db-v1', state);
-    } else {
-      state = updateLocal(state, command);
-      save(localKey, state);
-    }
+    state = await request('/players/' + profile + '/actions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
+    });
+    save(snapshotKey, state);
+    online = true;
     pending = null;
     if (['serve', 'skip', 'next'].includes(command.action)) {
       prepared = null;
@@ -369,11 +384,13 @@ async function change(input) {
   } catch (error) {
     if (error.uncertain) {
       pending = command;
+      online = false;
       if (dialog.open) dialog.close();
-    } else if (mode === 'db') {
+    } else {
+      // The database rejected the change, so reload what it actually holds.
       try {
         state = await request('/players/' + profile);
-        save('sugarberry-db-v1', state);
+        save(snapshotKey, state);
         if (originalPanel === 'bake') dialog.close();
       } catch { /* Keep the last confirmed state. */ }
       pending = null;
@@ -394,6 +411,7 @@ document.addEventListener('click', event => {
   const action = button.dataset.do;
   if (button.id === 'help') help();
   if (action === 'close') dialog.close();
+  if (action === 'reconnect') { $('#order').innerHTML = '<p>Setting out the pastries…</p>'; boot(); }
   if (!state || busy) return;
   const { dataset } = button;
   if (dataset.panel === 'pantry') pantry();
@@ -434,4 +452,6 @@ window.addEventListener('bakery-station', event => {
   if (event.detail === 'pantry') pantry();
   if (event.detail === 'ledger') ledger();
 });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+window.addEventListener('focus', refresh);
 boot();

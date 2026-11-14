@@ -70,6 +70,44 @@ FROM orders o JOIN subtotals s ON s.order_id = o.id
 WHERE o.player_id = :'demo_player'
 GROUP BY o.day;
 
+-- INDEX: the game's ledger query is answered by the UNIQUE (player_id, day, slot) index.
+-- Sequential scans are switched off here only because the demo tables are tiny.
+SET LOCAL enable_seqscan = off;
+SET LOCAL enable_bitmapscan = off;
+EXPLAIN (COSTS OFF)
+SELECT id, day, slot FROM orders
+WHERE player_id = :'demo_player'
+ORDER BY day DESC, slot DESC LIMIT 20;
+RESET enable_seqscan;
+RESET enable_bitmapscan;
+
+-- CONSTRAINTS: each statement below breaks a rule. Each inner block catches the error,
+-- prints which rule stopped it, and rolls back only that statement.
+SELECT set_config('demo.player', :'demo_player', true) IS NOT NULL AS player_noted;
+DO $$
+DECLARE
+    me UUID := current_setting('demo.player')::uuid;
+BEGIN
+    BEGIN
+        UPDATE inventory SET quantity = quantity - 100 WHERE player_id = me AND ingredient_id = 'flour';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'CHECK (quantity >= 0) rejected selling flour the pantry does not have.';
+    END;
+    BEGIN
+        INSERT INTO orders (player_id, customer_id, day, slot, bonus) VALUES (me, 'pip', 1, 0, 0);
+    EXCEPTION WHEN unique_violation THEN
+        RAISE NOTICE 'UNIQUE orders_one_sale_per_ticket rejected a second sale for day 1, ticket 1.';
+    END;
+    BEGIN
+        INSERT INTO orders (player_id, customer_id, day, slot, bonus) VALUES (me, 'nobody', 1, 1, 0);
+    EXCEPTION WHEN foreign_key_violation THEN
+        RAISE NOTICE 'FOREIGN KEY orders.customer_id rejected a customer that does not exist.';
+    END;
+END $$;
+
+-- Stock is unchanged after the failed statements.
+SELECT ingredient_id, quantity FROM inventory WHERE player_id = :'demo_player' ORDER BY ingredient_id;
+
 SAVEPOINT before_delete;
 
 -- DELETE: remove the demo player. Foreign keys cascade to its stock and orders.

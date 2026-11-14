@@ -1,12 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "functions": {
-    "api/bakery.js": { "includeFiles": "db/{schema,data}.sql" }
+    "api/bakery.js": { "includeFiles": "db/{schema,data}.sql", "maxDuration": 15 }
   },
   "rewrites": [
-    { "source": "/api/tables", "destination": "/api/bakery?route=tables" },
-    { "source": "/api/catalog", "destination": "/api/bakery?route=catalog" },
-    { "source": "/api/players/:path*", "destination": "/api/bakery?route=players/:path*" }
+    { "source": "/api/:route*", "destination": "/api/bakery?route=:route*" }
   ]
 }

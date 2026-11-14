@@ -188,11 +188,10 @@ th, td { padding: 6px; text-align: left; border-bottom: 1px solid var(--line); }
 .demo-controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; }
 .demo-controls button, #name { font: inherit; padding: 9px; color: var(--ink); background: var(--paper); border: 1px solid #bb8b79; border-radius: 7px; }
 .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-pre { overflow: auto; max-height: 450px; font-size: .8rem; }
 @media (max-width: 650px) { .demo-grid { grid-template-columns: 1fr; } }
 .db-demo { display: block; }
 .db-heading p { margin: 8px 0; }
-.db-heading a { color: var(--rose); }
+.db-demo a { color: var(--rose); overflow-wrap: anywhere; }
 .db-demo > section { margin-top: 22px; }
 .db-demo h2 { margin-bottom: 6px; }
 .db-demo .demo-grid { margin-top: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -201,7 +200,11 @@ pre { overflow: auto; max-height: 450px; font-size: .8rem; }
 .db-table th { background: #f3d6bf; }
 .db-table-scroll { overflow-x: auto; }
 .db-uuid { max-width: 9rem; overflow-wrap: anywhere; }
-#sale-summary { background: #f3d6bf; padding: 8px 12px; margin-top: 8px; }
+.db-changes { background: #f3d6bf; border-radius: 7px; padding: 8px 12px; margin-top: 8px; }
+.demo-field { display: inline-flex; gap: 6px; }
+.demo-field select { font: inherit; padding: 9px; color: var(--ink); background: var(--paper); border: 1px solid #bb8b79; border-radius: 7px; }
+.db-new td, td.db-changed { background: #f9d9a8; font-weight: 800; }
+#status:empty { display: none; }
 @media (max-width: 650px) {
   .db-demo .demo-grid { grid-template-columns: minmax(0, 1fr); }
 }

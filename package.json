@@ -7,11 +7,10 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "api": "node server/dev.js"
   },
   "dependencies": {
-    "@electric-sql/pglite": "0.5.16",
     "@fontsource/fraunces": "^5.2.0",
     "@fontsource/nunito": "^5.2.0",
     "pg": "^8.23.1",

@@ -1,26 +1,54 @@
-// Bakery API: the same endpoints, SQL, and transactions as the former Spring Boot service,
-// running as a Node.js function on PostgreSQL (Neon in production, Docker Compose locally).
+// Bakery API: every endpoint, SQL statement, and transaction behind the game.
+// Runs as one Vercel Node.js function on Neon Postgres, and locally through server/dev.js.
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
 
 const SHIFT_SIZE = 5;
 const REFILL_PORTIONS = 6;
+const UPGRADES = { oven: 40, decor: 28 };
 const UUID = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+const LOCAL_DATABASE = 'postgresql://sugarberry:sugarberry@127.0.0.1:5432/sugarberry';
 
 // COUNT/SUM/BIGINT columns arrive as strings by default; return them as JSON numbers.
 pg.types.setTypeParser(20, Number);
 pg.types.setTypeParser(1700, Number);
 
-const sqlFile = name => readFileSync(new URL('../db/' + name, import.meta.url), 'utf8');
+class HttpError extends Error {
+  constructor(status, detail) {
+    super(detail);
+    this.status = status;
+  }
+}
 
+function sqlFile(name) {
+  // vercel.json ships db/*.sql with the function; process.cwd() is the project root there.
+  try { return readFileSync(new URL('../db/' + name, import.meta.url), 'utf8'); }
+  catch { return readFileSync(process.cwd() + '/db/' + name, 'utf8'); }
+}
+
+export function connectionString(env = process.env) {
+  const url = env.DATABASE_URL || env.POSTGRES_URL;
+  if (url) return url;
+  if (env.VERCEL) {
+    throw new HttpError(503, 'No database is connected. Add a Neon database in Vercel → Storage so DATABASE_URL is set, then redeploy.');
+  }
+  return LOCAL_DATABASE;
+}
+
+// One small pool per function instance, reused by every request that instance serves.
 let pool;
 let ready;
 
 function database() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL
-      || 'postgresql://sugarberry:sugarberry@127.0.0.1:5432/sugarberry';
-    pool = new pg.Pool({ connectionString, max: Number(process.env.DATABASE_POOL_SIZE || 3) });
+    pool = new pg.Pool({
+      connectionString: connectionString(),
+      max: Number(process.env.DATABASE_POOL_SIZE || 3),
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 8000,
+    });
+    // A dropped idle connection (Neon scales to zero) must not crash the instance.
+    pool.on('error', error => console.error('Idle database connection closed:', error.message));
   }
   // Create tables and seed the catalog once per instance. Both files are idempotent,
   // and the advisory lock keeps simultaneous cold starts from racing each other.
@@ -32,12 +60,14 @@ function database() {
   return ready.then(() => pool);
 }
 
-class HttpError extends Error {
-  constructor(status, detail) {
-    super(detail);
-    this.status = status;
-  }
+/** Close the pool (tests and graceful shutdown). */
+export async function close() {
+  const current = pool;
+  pool = undefined;
+  ready = undefined;
+  await current?.end();
 }
+
 const missing = () => new HttpError(404, 'Bakery profile not found.');
 const conflict = detail => new HttpError(409, detail);
 const badRequest = detail => new HttpError(400, detail);
@@ -117,12 +147,14 @@ async function tables(db, id) {
     customers: await rows(db, 'SELECT id, name, species, rotation FROM customers ORDER BY rotation'),
   };
   if (!id) return result;
-  result.players = await rows(db, 'SELECT id, name, coins, xp, day, slot FROM players WHERE id = $1', [id]);
+  result.players = await rows(db, `
+    SELECT id, name, coins, xp, day, slot, served, oven, decor, revision
+    FROM players WHERE id = $1`, [id]);
   result.inventory = await rows(db, `
     SELECT player_id, ingredient_id, quantity FROM inventory
     WHERE player_id = $1 ORDER BY ingredient_id`, [id]);
   result.orders = await rows(db, `
-    SELECT id, player_id, customer_id, day, slot, bonus FROM orders
+    SELECT id, player_id, customer_id, day, slot, bonus, served_at FROM orders
     WHERE player_id = $1 ORDER BY day DESC, slot DESC LIMIT 20`, [id]);
   result.order_items = await rows(db, `
     SELECT i.order_id, i.product_id, i.quantity, i.unit_price
@@ -163,6 +195,7 @@ async function serve(db, id, p, perfect) {
 }
 
 async function restock(db, id, p, item) {
+  if (typeof item !== 'string') throw badRequest('Unknown ingredient.');
   const [ingredient] = await rows(db, 'SELECT refill_price FROM ingredients WHERE id = $1', [item]);
   if (!ingredient) throw badRequest('Unknown ingredient.');
   if (p.coins < ingredient.refill_price) throw conflict('You need more coins.');
@@ -174,13 +207,10 @@ async function restock(db, id, p, item) {
 }
 
 async function upgrade(db, id, p, item) {
-  if (item === 'oven' && !p.oven && p.coins >= 40) {
-    await db.query('UPDATE players SET coins = coins - 40, oven = TRUE WHERE id = $1', [id]);
-  } else if (item === 'decor' && !p.decor && p.coins >= 28) {
-    await db.query('UPDATE players SET coins = coins - 28, decor = TRUE WHERE id = $1', [id]);
-  } else {
-    throw conflict('This upgrade is unavailable.');
-  }
+  if (!Object.hasOwn(UPGRADES, item)) throw badRequest('Unknown upgrade.');
+  if (p[item] || p.coins < UPGRADES[item]) throw conflict('This upgrade is unavailable.');
+  // `item` is checked against UPGRADES above, so the column name is never user text.
+  await db.query(`UPDATE players SET coins = coins - $1, ${item} = TRUE WHERE id = $2`, [UPGRADES[item], id]);
 }
 
 async function act(id, a) {
@@ -265,9 +295,14 @@ const api = {
   }),
 };
 
-const problem = (status, detail) => ({
-  status, body: { type: 'about:blank', title: { 400: 'Bad Request', 404: 'Not Found', 405: 'Method Not Allowed', 409: 'Conflict' }[status] || 'Internal Server Error', status, detail },
-});
+const TITLES = {
+  400: 'Bad Request', 404: 'Not Found', 405: 'Method Not Allowed', 409: 'Conflict',
+  500: 'Internal Server Error', 503: 'Service Unavailable',
+};
+const problem = (status, detail) => ({ status, body: { type: 'about:blank', title: TITLES[status], status, detail } });
+// Connection failures, Neon waking up, or too many clients: the database, not the request, is at fault.
+const unreachable = error => ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN', '53300', '57P01', '57P03'].includes(error.code)
+  || String(error.code).startsWith('08') || /timeout|terminated/i.test(error.message);
 
 /** Route one request. `route` is the path after /api/, e.g. "players/<uuid>/actions". */
 export async function handle(method, route, body) {
@@ -297,6 +332,8 @@ export async function handle(method, route, body) {
     // A concurrent duplicate ticket hits UNIQUE (player_id, day, slot); a CHECK catches bad state.
     if (error.code === '23505' || error.code === '23514') return problem(409, 'Your shift changed. Please use the latest ticket.');
     console.error(error);
-    return problem(500, 'The bakery database is unavailable.');
+    return unreachable(error)
+      ? problem(503, 'The bakery database is unavailable. Try again in a moment.')
+      : problem(500, 'The bakery server hit an unexpected error.');
   }
 }
