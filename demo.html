@@ -1,6 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bakery database demo</title></head><body>
-<main class="game-shell"><h1>Bakery database demo</h1><p>Create a disposable profile and demonstrate CRUD, an atomic sale, and daily aggregation.</p><p><a href="./">Return to the game</a></p>
-<section class="recipe-book"><label>Profile name <input id="name" value="Viva Bakery" maxlength="40"></label>
-<div class="demo-controls"><button data-action="create">Create profile</button><button data-action="rename">Rename</button><button data-action="read">Read state</button><button data-action="serve">Serve order</button><button data-action="sales">Daily totals</button><button data-action="delete">Delete profile</button></div><p id="status" role="status">Start with Create profile.</p></section>
-<div class="demo-grid"><section class="recipe-book"><h2>Before</h2><pre id="before">No profile yet.</pre></section><section class="recipe-book"><h2>After / query result</h2><pre id="after"></pre></section></div>
-<section class="recipe-book"><h2>Explain the transaction</h2><p>Serving locks the player row, deducts recipe portions, inserts an order and its line item, and credits coins and XP. Any ingredient shortage rolls the whole sale back. Daily totals group the orders by day and sum line totals plus bonuses.</p></section></main><script type="module" src="/src/demo.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sugarberry Bakery Database</title>
+</head>
+<body>
+  <main class="game-shell db-demo">
+    <header class="db-heading">
+      <h1>Sugarberry Bakery Database</h1>
+      <p>Follow a sale through the PostgreSQL tables.</p>
+      <a href="./">Return to the game</a>
+    </header>
+    <section class="recipe-book" aria-label="Demo profile">
+      <label for="name">Profile name</label>
+      <input id="name" value="Viva Bakery" maxlength="40">
+      <div class="demo-controls">
+        <button data-action="create" type="button">Create profile</button>
+        <button data-action="rename" type="button">Rename</button>
+        <button data-action="read" type="button">Refresh records</button>
+        <button data-action="serve" type="button">Serve order</button>
+        <button data-action="sales" type="button">Daily totals</button>
+        <button data-action="delete" type="button">Delete profile</button>
+      </div>
+      <p id="status" role="status">Start with Create profile.</p>
+    </section>
+    <section aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Player and sale records</h2>
+      <p id="player-description">Create a demo profile to see its player, inventory, and order rows.</p>
+      <p id="sale-summary" hidden></p>
+      <div id="profile-tables" class="demo-grid"></div>
+    </section>
+    <section id="daily-section" hidden>
+      <h2>Daily totals</h2>
+      <div id="daily-table"></div>
+    </section>
+    <section aria-labelledby="catalog-heading">
+      <h2 id="catalog-heading">Bakery catalog</h2>
+      <p>Match <code>ingredient_id</code> and <code>product_id</code> in the recipe table to the ingredients and products below.</p>
+      <div id="catalog-tables" class="demo-grid"></div>
+    </section>
+  </main>
+  <script type="module" src="/src/demo.js"></script>
+</body>
+</html>

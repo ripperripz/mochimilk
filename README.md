@@ -86,7 +86,7 @@ node scripts/smoke.mjs  # API and PostgreSQL must already be running
 
 The API smoke script creates and removes its own profile. It checks player CRUD, a recipe join, duplicate concurrent sale submission, daily revenue, an oven purchase, a refill, and a rejected refill. For the built frontend, use `npm run preview` to serve `dist` with the same API proxy.
 
-Open /demo.html for the interactive database demonstration. Its disposable profile is separate from your game save.
+Open /demo.html for the interactive database demonstration. It displays eight separate tables read from PostgreSQL. The four catalog tables load before you create a profile. Create a disposable profile, serve a sale, and match the order ID in Orders to its line item. Compare the coin and stock changes shown above the tables. The demo profile is separate from your game save.
 
 Click the oven or counter to bake, the shelves for the pantry, or the register for sales. After adding ingredients, drag around the bowl or press Whisk eight times before timing the oven.
 

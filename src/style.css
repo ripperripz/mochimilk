@@ -190,3 +190,22 @@ th, td { padding: 6px; text-align: left; border-bottom: 1px solid var(--line); }
 .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 pre { overflow: auto; max-height: 450px; font-size: .8rem; }
 @media (max-width: 650px) { .demo-grid { grid-template-columns: 1fr; } }
+.db-demo { display: block; }
+.db-heading p { margin: 8px 0; }
+.db-heading a { color: var(--rose); }
+.db-demo > section { margin-top: 22px; }
+.db-demo h2 { margin-bottom: 6px; }
+.db-demo .demo-grid { margin-top: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.db-table { min-width: 0; padding: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; }
+.db-table h3 { font: 700 .94rem ui-monospace, monospace; margin-bottom: 8px; }
+.db-table th { background: #f3d6bf; }
+.db-table-scroll { overflow-x: auto; }
+.db-uuid { max-width: 9rem; overflow-wrap: anywhere; }
+#sale-summary { background: #f3d6bf; padding: 8px 12px; margin-top: 8px; }
+@media (max-width: 650px) {
+  .db-demo .demo-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.db-link { color: var(--rose); font-weight: 800; font-size: .78rem; white-space: nowrap; text-underline-offset: 3px; }
+@media (max-width: 470px) {
+  .masthead { flex-wrap: wrap; }
+}

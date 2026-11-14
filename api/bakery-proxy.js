@@ -1,15 +1,16 @@
-const playerRoute = /^players\/[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}(?:\/(actions|sales))?$/i;
+const playerRoute = /^players\/[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}(?:\/(actions|sales|tables))?$/i;
 
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
 
   const { route } = request.query;
   const player = typeof route === 'string' && playerRoute.exec(route);
-  if (route !== 'catalog' && !player) {
+  const catalogRoute = route === 'catalog' || route === 'tables';
+  if (!catalogRoute && !player) {
     return response.status(404).json({ detail: 'Unknown bakery API route.' });
   }
 
-  const methods = route === 'catalog' || player[1] === 'sales' ? ['GET']
+  const methods = catalogRoute || player[1] === 'sales' || player[1] === 'tables' ? ['GET']
     : player[1] === 'actions' ? ['POST'] : ['GET', 'PUT', 'PATCH', 'DELETE'];
   if (!methods.includes(request.method)) {
     response.setHeader('Allow', methods.join(', '));

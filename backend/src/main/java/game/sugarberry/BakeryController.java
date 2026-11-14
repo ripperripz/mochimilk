@@ -18,6 +18,16 @@ public class BakeryController {
 
     public record Rename(String name) {}
 
+    @GetMapping("/tables")
+    public Map<String, List<Map<String, Object>>> catalogTables() {
+        return bakery.tables(null);
+    }
+
+    @GetMapping("/players/{id}/tables")
+    public Map<String, List<Map<String, Object>>> playerTables(@PathVariable UUID id) {
+        return bakery.tables(id);
+    }
+
     @GetMapping("/catalog")
     public BakeryService.Catalog catalog() {
         return bakery.catalog();

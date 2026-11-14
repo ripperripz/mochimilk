@@ -68,6 +68,45 @@ public class BakeryService {
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Map<String, List<Map<String, Object>>> tables(UUID id) {
+        var tables = new LinkedHashMap<String, List<Map<String, Object>>>();
+        tables.put("ingredients", db.queryForList("""
+            SELECT id, name, refill_price, starting_stock FROM ingredients ORDER BY id
+            """));
+        tables.put("products", db.queryForList("""
+            SELECT id, name, price, unlock_level FROM products ORDER BY menu_position
+            """));
+        tables.put("recipe_ingredients", db.queryForList("""
+            SELECT product_id, ingredient_id, portions
+            FROM recipe_ingredients ORDER BY product_id, ingredient_id
+            """));
+        tables.put("customers", db.queryForList("""
+            SELECT id, name, species, rotation FROM customers ORDER BY rotation
+            """));
+        if (id == null) return tables;
+
+        tables.put("players", db.queryForList("""
+            SELECT id, name, coins, xp, day, slot FROM players WHERE id = ?
+            """, id));
+        tables.put("inventory", db.queryForList("""
+            SELECT player_id, ingredient_id, quantity FROM inventory
+            WHERE player_id = ? ORDER BY ingredient_id
+            """, id));
+        tables.put("orders", db.queryForList("""
+            SELECT id, player_id, customer_id, day, slot, bonus FROM orders
+            WHERE player_id = ? ORDER BY day DESC, slot DESC LIMIT 20
+            """, id));
+        tables.put("order_items", db.queryForList("""
+            SELECT i.order_id, i.product_id, i.quantity, i.unit_price
+            FROM order_items i
+            JOIN (SELECT id FROM orders WHERE player_id = ?
+                  ORDER BY day DESC, slot DESC LIMIT 20) o ON o.id = i.order_id
+            ORDER BY i.order_id DESC, i.product_id
+            """, id));
+        return tables;
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Catalog catalog() {
         var ingredients = db.query("""
             SELECT id, name, refill_price FROM ingredients ORDER BY id
